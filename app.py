@@ -93,6 +93,77 @@ async def extract_details_from_pdfs(files: list[UploadFile] = File(...)):
     # Return the extracted details in JSON format
     return JSONResponse(content={"results": results}, media_type="application/json")
 
+# Function to get the list of uploaded PDF files
+def get_uploaded_pdfs():
+    pdf_files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(".pdf")]
+    return pdf_files
+
+# Function to get the text of a specific PDF file
+def get_pdf_text(file_name):
+    pdf_file_path = os.path.join(UPLOAD_FOLDER, file_name)
+    with open(pdf_file_path, "rb") as pdf_file:
+        reader = PyPDF2.PdfReader(pdf_file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text()
+        return text
+
+# Endpoint to get the list of uploaded PDF files
+@app.get("/pdfs")
+async def get_pdfs():
+    pdf_files = get_uploaded_pdfs()
+    return JSONResponse(content={"pdfs": pdf_files}, media_type="application/json")
+
+# Endpoint to interact with a specific contract document using a chat interface
+# Endpoint to interact with a specific contract document using a chat interface
+@app.post("/chat/{contract_id}")
+async def chat_with_contract(contract_id: str, message: str):
+    pdf_files = get_uploaded_pdfs()
+    if contract_id not in pdf_files:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    pdf_text = get_pdf_text(contract_id)
+
+    # Prepare the prompt for the Gradio model
+    prompt = f"""
+            Extract the following details from the given contract and give them in JSON format:
+
+            Vendor name, contract id, start date, end date, term of contract, next renewal year, scope, type of contract (multiple or single product), contract type (SAAS/Software/Fixed Bid/OEM), number of licenses in contract, cost per license, total license cost, renewal cost, maintenance cost, any other cost, any one-time cost or misc cost, total contract value, annual contract value, First Year P&L impact, Second Year P&L impact, Third Year P&L impact, Fourth Year P&L impact, Fifth Year P&L impact, First year Cash payments, Second year Cash payments, Third year Cash payments, Fourth year Cash payments, Fifth year Cash payments, change in scope with respect to years, change in scope in ﹩ terms, whether YoY change in scope is volume driven, YoY change in active months of contract, Increase in the cost of product/service as agreed to in the contract with vendor (CPI impact %), Increase in the cost of product/service as agreed to in the contract with vendor (CPI impact ﹩), If there is a change in rate/expense mentioned in the contract for next year.
+
+            Contract text: {pdf_text}
+
+            User: {message}
+            """
+
+    system_message = ""
+    max_tokens = 512
+    temperature = 0.7
+    top_p = 0.95
+
+    try:
+        # Call the Gradio model with the prepared prompt
+        response = client.predict(
+            message=prompt,
+            system_message=system_message,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            api_name="/chat"
+        )
+
+        print("Model output:")
+        print(response)
+
+        # Try to parse the response as JSON
+        try:
+            extracted_details = json.loads(response)
+            return extracted_details
+        except json.JSONDecodeError:
+            # If parsing as JSON fails, return the response as plain text
+            return {"response": response}
+    except Exception as e:
+        return {"error": f"An error occurred: {str(e)}"}
+
 # Run the FastAPI app
 if __name__ == "__main__":
     import uvicorn
