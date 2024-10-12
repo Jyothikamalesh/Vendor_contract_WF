@@ -1,5 +1,6 @@
-gradio==4.39.0
-openai==1.37.0
-pypdf2==1.26.0
-fastapi==0.68.0
-uvicorn==0.15.0
+
+gradio==4.38.0
+openai
+pypdf2
+fastapi
+uvicorn

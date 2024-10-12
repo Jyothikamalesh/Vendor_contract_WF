@@ -5,7 +5,6 @@ from fastapi.responses import JSONResponse
 from gradio_client import Client
 import PyPDF2 
 import os
-import uuid
 
 app = FastAPI()
 
@@ -65,35 +64,34 @@ def extract_contract_details_with_model(text):
     except Exception as e:
         return {"error": f"An error occurred: {str(e)}"}
 
-# Endpoint to upload a contract and extract details
+# Endpoint to upload multiple contracts and extract details
 @app.post("/extract")
-async def extract_details_from_pdf(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pdf"):
+async def extract_details_from_pdfs(files: list[UploadFile] = File(...)):
+    if not all(file.filename.endswith(".pdf") for file in files):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-    # Generate a unique contract ID
-    contract_id = str(uuid.uuid4())
+    results = []
+    for file in files:
+        # Save the uploaded PDF file
+        pdf_file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+        with open(pdf_file_path, "wb") as pdf_file:
+            pdf_file.write(file.file.read())
 
-    # Create a directory for the contract ID if it doesn't exist
-    contract_folder = os.path.join(UPLOAD_FOLDER, contract_id)
-    if not os.path.exists(contract_folder):
-        os.makedirs(contract_folder)
+        # Extract text from the PDF
+        pdf_text = extract_text_from_pdf(pdf_file_path)
+        if not pdf_text:
+            raise HTTPException(status_code=400, detail="Failed to extract text from the PDF")
 
-    # Save the uploaded PDF file to the contract folder
-    pdf_file_path = os.path.join(contract_folder, file.filename)
-    with open(pdf_file_path, "wb") as pdf_file:
-        pdf_file.write(file.file.read())
+        # Pass the extracted text to the Gradio model for information extraction
+        extracted_details = extract_contract_details_with_model(pdf_text)
 
-    # Extract text from the PDF
-    pdf_text = extract_text_from_pdf(pdf_file_path)
-    if not pdf_text:
-        raise HTTPException(status_code=400, detail="Failed to extract text from the PDF")
-
-    # Pass the extracted text to the Gradio model for information extraction
-    extracted_details = extract_contract_details_with_model(pdf_text)
+        results.append({
+            "file_name": file.filename,
+            "contract_details": extracted_details
+        })
 
     # Return the extracted details in JSON format
-    return JSONResponse(content={"contract_id": contract_id, "contract_details": extracted_details}, media_type="application/json")
+    return JSONResponse(content={"results": results}, media_type="application/json")
 
 # Run the FastAPI app
 if __name__ == "__main__":
