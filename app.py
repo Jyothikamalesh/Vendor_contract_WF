@@ -96,13 +96,22 @@ def extract_contract_details_with_model(text):
                     key, value = line.split(":", 1)
                     extracted_details[key.strip()] = value.strip()
 
-        return extracted_details
-    except Exception as e:
-        return {"error": f"An error occurred: {str(e)}"}
+        # Remove extra double quotes from keys
+        extracted_details = remove_extra_quotes(extracted_details)
 
         return extracted_details
     except Exception as e:
         return {"error": f"An error occurred: {str(e)}"}
+
+def remove_extra_quotes(contract_details):
+    new_contract_details = {}
+    for key, value in contract_details.items():
+        new_key = key.replace('"', '')
+        if isinstance(value, str):
+            new_contract_details[new_key] = value.replace('"', '')
+        else:
+            new_contract_details[new_key] = value
+    return new_contract_details
 
 @app.post("/extract")
 async def extract_details_from_files(files: list[UploadFile] = File(...)):
