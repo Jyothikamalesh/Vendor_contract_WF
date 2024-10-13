@@ -18,8 +18,17 @@ from gradio_client import Client
 import PyPDF2 
 import os
 from docx import Document
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize the Gradio client
 client = Client("Jyothikamalesh/Vendor-contract-extractor")
@@ -223,8 +232,8 @@ async def chat_with_contract(contract_id: str, message: str):
             """
 
     system_message = ""
-    max_tokens = 512
-    temperature = 0.7
+    max_tokens = 2048
+    temperature = 0.2
     top_p = 0.95
 
     try:
