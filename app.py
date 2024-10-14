@@ -69,21 +69,20 @@ def extract_text_from_docx(docx_file):
     return text
 
 def extract_contract_details_with_model(text):
-    prompt = f"""
-            Extract the following details from the given contract and give them in JSON format:
-
-            Vendor name, contract id, start date, end date, term of contract, next renewal year, scope, type of contract (multiple or single product), contract type (SAAS/Software/Fixed Bid/OEM), number of licenses in contract, cost per license, total license cost, renewal cost, maintenance cost, any other cost, any one-time cost or misc cost, total contract value, annual contract value, First Year P&L impact, Second Year P&L impact, Third Year P&L impact, Fourth Year P&L impact, Fifth Year P&L impact, First year Cash payments, Second year Cash payments, Third year Cash payments, Fourth year Cash payments, Fifth year Cash payments, change in scope with respect to years, change in scope in ﹩ terms, whether YoY change in scope is volume driven, YoY change in active months of contract, Increase in the cost of product/service as agreed to in the contract with vendor (CPI impact %), Increase in the cost of product/service as agreed to in the contract with vendor (CPI impact ﹩), If there is a change in rate/expense mentioned in the contract for next year.
-
-            Contract text: {text}
-            """
-
-    system_message = ""
-    max_tokens = 512
-    temperature = 0.7
-    top_p = 0.95
-    
     try:
-        # Call the Gradio model with the prepared prompt
+        prompt = f"""
+                Extract the following details from the given contract and give them in JSON format:
+
+                Vendor name, contract id, start date, end date, term of contract, next renewal year, scope, type of contract (multiple or single product), contract type (SAAS/Software/Fixed Bid/OEM), number of licenses in contract, cost per license, total license cost, renewal cost, maintenance cost, any other cost, any one-time cost or misc cost, total contract value, annual contract value, First Year P&L impact, Second Year P&L impact, Third Year P&L impact, Fourth Year P&L impact, Fifth Year P&L impact, First year Cash payments, Second year Cash payments, Third year Cash payments, Fourth year Cash payments, Fifth year Cash payments, change in scope with respect to years, change in scope in ﹩ terms, whether YoY change in scope is volume driven, YoY change in active months of contract, Increase in the cost of product/service as agreed to in the contract with vendor (CPI impact %), Increase in the cost of product/service as agreed to in the contract with vendor (CPI impact ﹩), If there is a change in rate/expense mentioned in the contract for next year.
+
+                Contract text: {text}
+                """
+
+        system_message = ""
+        max_tokens = 512
+        temperature = 0.7
+        top_p = 0.95
+        
         response = client.predict(
             message=prompt,
             system_message=system_message,
@@ -93,11 +92,9 @@ def extract_contract_details_with_model(text):
             api_name="/chat"
         )
 
-        # Try to parse the response as JSON
         try:
             extracted_details = json.loads(response)
         except json.JSONDecodeError:
-            # If parsing as JSON fails, try to extract relevant information from the response
             extracted_details = {}
             lines = response.splitlines()
             for line in lines:
@@ -105,11 +102,13 @@ def extract_contract_details_with_model(text):
                     key, value = line.split(":", 1)
                     extracted_details[key.strip()] = value.strip()
 
-        # Remove extra double quotes from keys
         extracted_details = remove_extra_quotes(extracted_details)
 
         return extracted_details
     except Exception as e:
+        import logging
+        logging.error(f"An error occurred: {str(e)}")
+        logging.error(f"Request details: text={text}")
         return {"error": f"An error occurred: {str(e)}"}
 
 def remove_extra_quotes(contract_details):
@@ -209,33 +208,25 @@ async def chat_with_contract(contract_id: str, message: str):
 
     Args:
     contract_id (str): ID of the contract
-    message (str): User message
+    message (str): User's message
 
     Returns:
-    dict: Response from the model
+    dict: Response from the Gradio model
     """
-    uploaded_files = get_uploaded_files()
-    if contract_id not in uploaded_files:
-        raise HTTPException(status_code=404, detail="Contract not found")
-
-    file_text = get_file_text(contract_id)
-
+    file_name = contract_id
+    file_path = os.path.join(UPLOAD_FOLDER, file_name)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"Contract '{contract_id}' not found. Please upload the contract file first.")
+    pdf_text = get_file_text(file_name)
+    extracted_details = extract_contract_details_with_model(pdf_text)
     # Prepare the prompt for the Gradio model
     prompt = f"""
-            Extract the following details from the given contract and give them in JSON format:
-
-            Vendor name, contract id, start date, end date, term of contract, next renewal year, scope, type of contract (multiple or single product), contract type (SAAS/Software/Fixed Bid/OEM), number of licenses in contract, cost per license, total license cost, renewal cost, maintenance cost, any other cost, any one-time cost or misc cost, total contract value, annual contract value, First Year P&L impact, Second Year P&L impact, Third Year P&L impact, Fourth Year P&L impact, Fifth Year P&L impact, First year Cash payments, Second year Cash payments, Third year Cash payments, Fourth year Cash payments, Fifth year Cash payments, change in scope with respect to years, change in scope in ﹩ terms, whether YoY change in scope is volume driven, YoY change in active months of contract, Increase in the cost of product/service as agreed to in the contract with vendor (CPI impact %), Increase in the cost of product/service as agreed to in the contract with vendor (CPI impact ﹩), If there is a change in rate/expense mentioned in the contract for next year.
-
-            Contract text: {file_text}
-
             User: {message}
             """
-
     system_message = ""
     max_tokens = 2048
     temperature = 0.2
     top_p = 0.95
-
     try:
         # Call the Gradio model with the prepared prompt
         response = client.predict(
@@ -246,51 +237,18 @@ async def chat_with_contract(contract_id: str, message: str):
             top_p=top_p,
             api_name="/chat"
         )
-
+        print("Model output:")
+        print(response)
         # Try to parse the response as JSON
         try:
-            extracted_details = json.loads(response)
-            # Format the extracted details
-            formatted_details = {
-                "results": [
-                    {
-                        "file_name": contract_id,
-                        "contract_details": {}
-                    }
-                ]
-            }
-            for key, value in extracted_details.items():
-                if value == "null":
-                    formatted_details["results"][0]["contract_details"][key] = None
-                elif value.isdigit():
-                    formatted_details["results"][0]["contract_details"][key] = int(value)
-                else:
-                    formatted_details["results"][0]["contract_details"][key] = value
-            return formatted_details
+            response_details = json.loads(response)
+            return {"response": response}
         except json.JSONDecodeError:
-            # If parsing as JSON fails, try to extract relevant information from the response
-            extracted_details = {}
-            lines = response.splitlines()
-            for line in lines:
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    if value.strip() == "null":
-                        extracted_details[key.strip()] = None
-                    elif value.strip().isdigit():
-                        extracted_details[key.strip()] = int(value.strip())
-                    else:
-                        extracted_details[key.strip()] = value.strip()
-            formatted_details = {
-                "results": [
-                    {
-                        "file_name": contract_id,
-                        "contract_details": extracted_details
-                    }
-                ]
-            }
-            return formatted_details
+            # If parsing as JSON fails, return the response as plain text
+            return {"response": response}
     except Exception as e:
-        return {"error": f"An error occurred: {str(e)}"}
+        return {"response": f"An error occurred: {str(e)}"}
+    
 
 if __name__ == "__main__":
     import uvicorn
